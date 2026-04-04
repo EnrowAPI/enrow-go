@@ -23,8 +23,7 @@ func main() {
 
     result, err := client.Email.Find(enrow.EmailFindParams{
         CompanyDomain: "apple.com",
-        FirstName:     "Tim",
-        LastName:      "Cook",
+        FullName:      "Tim Cook",
     })
     if err != nil {
         panic(err)
@@ -40,15 +39,13 @@ func main() {
 // Find a single email
 result, _ := client.Email.Find(enrow.EmailFindParams{
     CompanyDomain: "apple.com",
-    FirstName:     "Tim",
-    LastName:      "Cook",
+    FullName:      "Tim Cook",
 })
 
 // Wait for result (auto-polling)
 result, _ := client.Email.Find(enrow.EmailFindParams{
     CompanyDomain: "apple.com",
-    FirstName:     "Tim",
-    LastName:      "Cook",
+    FullName:      "Tim Cook",
 }, &enrow.PollOptions{WaitForResult: true})
 
 // Get by ID
@@ -57,8 +54,8 @@ result, _ := client.Email.Get("search_abc123")
 // Bulk
 batch, _ := client.Email.FindBulk(enrow.EmailFindBulkParams{
     Searches: []enrow.EmailFindParams{
-        {CompanyDomain: "apple.com", FirstName: "Tim", LastName: "Cook"},
-        {CompanyDomain: "microsoft.com", FirstName: "Satya", LastName: "Nadella"},
+        {CompanyDomain: "apple.com", FullName: "Tim Cook"},
+        {CompanyDomain: "microsoft.com", FullName: "Satya Nadella"},
     },
 })
 results, _ := client.Email.GetBulk(batch.BatchID)
@@ -70,7 +67,7 @@ results, _ := client.Email.GetBulk(batch.BatchID)
 result, _ := client.Verify.Single(enrow.VerifySingleParams{Email: "tcook@apple.com"})
 fmt.Println(result.Qualification) // "valid"
 
-batch, _ := client.Verify.Bulk(enrow.VerifyBulkParams{Emails: []string{"a@b.com", "c@d.com"}})
+batch, _ := client.Verify.Bulk(enrow.VerifyBulkParams{Verifications: []string{"a@b.com", "c@d.com"}})
 results, _ := client.Verify.GetBulk(batch.BatchID)
 ```
 
@@ -84,8 +81,7 @@ result, _ := client.Phone.Find(enrow.PhoneFindParams{
 
 // By name + company
 result, _ := client.Phone.Find(enrow.PhoneFindParams{
-    FirstName:     "Tim",
-    LastName:      "Cook",
+    FullName:      "Tim Cook",
     CompanyDomain: "apple.com",
 }, &enrow.PollOptions{WaitForResult: true})
 ```

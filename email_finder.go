@@ -28,7 +28,7 @@ func (e *EmailFinder) Find(params EmailFindParams, opts ...*PollOptions) (*Email
 
 func (e *EmailFinder) Get(id string) (*EmailFindResult, error) {
 	var result EmailFindResult
-	if err := e.client.doGet(formatPath("/email/find/single/%s", id), nil, &result); err != nil {
+	if err := e.client.doGet("/email/find/single", map[string]string{"id": id}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -44,7 +44,7 @@ func (e *EmailFinder) FindBulk(params EmailFindBulkParams) (*EmailFindBulkRespon
 
 func (e *EmailFinder) GetBulk(id string) (*EmailFindBulkResult, error) {
 	var result EmailFindBulkResult
-	if err := e.client.doGet(formatPath("/email/find/bulk/%s", id), nil, &result); err != nil {
+	if err := e.client.doGet("/email/find/bulk", map[string]string{"id": id}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

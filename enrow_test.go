@@ -27,6 +27,9 @@ func TestEmailFind(t *testing.T) {
 		if body["company_domain"] != "apple.com" {
 			t.Fatalf("expected apple.com, got %v", body["company_domain"])
 		}
+		if body["fullname"] != "Tim Cook" {
+			t.Fatalf("expected fullname=Tim Cook, got %v", body["fullname"])
+		}
 
 		json.NewEncoder(w).Encode(EmailFindResult{
 			ID:            "search_123",
@@ -39,8 +42,7 @@ func TestEmailFind(t *testing.T) {
 
 	result, err := client.Email.Find(EmailFindParams{
 		CompanyDomain: "apple.com",
-		FirstName:     "Tim",
-		LastName:      "Cook",
+		FullName:      "Tim Cook",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +54,7 @@ func TestEmailFind(t *testing.T) {
 
 func TestEmailGet(t *testing.T) {
 	server, client := testServer(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || r.URL.Path != "/email/find/single/search_123" {
+		if r.Method != "GET" || r.URL.Path != "/email/find/single" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 		json.NewEncoder(w).Encode(EmailFindResult{
@@ -127,8 +129,8 @@ func TestPhoneGet(t *testing.T) {
 		json.NewEncoder(w).Encode(PhoneFindResult{
 			ID:            "phone_123",
 			Qualification: "found",
-			Phone:         "+33612345678",
-			CountryCode:   "FR",
+			Number:        "+33612345678",
+			Country:       "FR",
 		})
 	})
 	defer server.Close()
@@ -137,7 +139,7 @@ func TestPhoneGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Phone != "+33612345678" {
-		t.Fatalf("expected +33612345678, got %s", result.Phone)
+	if result.Number != "+33612345678" {
+		t.Fatalf("expected +33612345678, got %s", result.Number)
 	}
 }

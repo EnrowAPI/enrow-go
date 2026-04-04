@@ -10,8 +10,7 @@ type Company struct {
 type EmailFindParams struct {
 	CompanyDomain string          `json:"company_domain,omitempty"`
 	CompanyName   string          `json:"company_name,omitempty"`
-	FirstName     string          `json:"first_name,omitempty"`
-	LastName      string          `json:"last_name,omitempty"`
+	FullName      string          `json:"fullname,omitempty"`
 	Settings      *SearchSettings `json:"settings,omitempty"`
 }
 
@@ -91,7 +90,7 @@ type VerifySingleResult struct {
 }
 
 type VerifyBulkParams struct {
-	Emails   []string            `json:"emails"`
+	Verifications []string            `json:"verifications"`
 	Settings *WebhookOnlySetting `json:"settings,omitempty"`
 }
 
@@ -131,8 +130,8 @@ type PhoneFindResponse struct {
 type PhoneFindResult struct {
 	ID            string `json:"id"`
 	Qualification string `json:"qualification"`
-	Phone         string `json:"phone"`
-	CountryCode   string `json:"country_code"`
+	Number        string `json:"number"`
+	Country       string `json:"country"`
 }
 
 type PhoneFindBulkParams struct {
@@ -149,8 +148,8 @@ type PhoneBulkResponse struct {
 type PhoneBulkResultItem struct {
 	Index         int    `json:"index"`
 	Qualification string `json:"qualification"`
-	Phone         string `json:"phone"`
-	CountryCode   string `json:"country_code"`
+	Number        string `json:"number"`
+	Country       string `json:"country"`
 }
 
 type PhoneBulkResult struct {
@@ -211,6 +210,5 @@ type ReverseEmailBulkItemResult struct {
 // ── Account ──
 
 type AccountInfo struct {
-	Credits  float64  `json:"credits"`
-	Webhooks []string `json:"webhooks"`
+	Credits float64 `json:"credits"`
 }
