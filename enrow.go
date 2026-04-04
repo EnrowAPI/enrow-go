@@ -119,7 +119,7 @@ func parseError(status int, body []byte) error {
 	switch status {
 	case 401:
 		return &AuthenticationError{EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}
-	case 402:
+	case 422:
 		return &InsufficientBalanceError{EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}
 	case 429:
 		return &RateLimitError{EnrowError: EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}

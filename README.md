@@ -67,7 +67,7 @@ results, _ := client.Email.GetBulk(batch.BatchID)
 result, _ := client.Verify.Single(enrow.VerifySingleParams{Email: "tcook@apple.com"})
 fmt.Println(result.Qualification) // "valid"
 
-batch, _ := client.Verify.Bulk(enrow.VerifyBulkParams{Verifications: []string{"a@b.com", "c@d.com"}})
+batch, _ := client.Verify.Bulk(enrow.VerifyBulkParams{Emails: []string{"a@b.com", "c@d.com"}})
 results, _ := client.Verify.GetBulk(batch.BatchID)
 ```
 
@@ -81,7 +81,8 @@ result, _ := client.Phone.Find(enrow.PhoneFindParams{
 
 // By name + company
 result, _ := client.Phone.Find(enrow.PhoneFindParams{
-    FullName:      "Tim Cook",
+    FirstName:     "Tim",
+    LastName:      "Cook",
     CompanyDomain: "apple.com",
 }, &enrow.PollOptions{WaitForResult: true})
 ```
@@ -109,7 +110,7 @@ if err != nil {
     case *enrow.RateLimitError:
         // 429
     case *enrow.InsufficientBalanceError:
-        // 402
+        // 422
     case *enrow.AuthenticationError:
         // 401
     case *enrow.EnrowError:

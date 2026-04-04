@@ -11,24 +11,35 @@ type EmailFindParams struct {
 	CompanyDomain string          `json:"company_domain,omitempty"`
 	CompanyName   string          `json:"company_name,omitempty"`
 	FullName      string          `json:"fullname,omitempty"`
+	Custom        interface{}     `json:"custom,omitempty"`
 	Settings      *SearchSettings `json:"settings,omitempty"`
 }
 
 type SearchSettings struct {
-	CountryCode string `json:"country_code,omitempty"`
-	Webhook     string `json:"webhook,omitempty"`
+	CountryCode    string `json:"country_code,omitempty"`
+	Webhook        string `json:"webhook,omitempty"`
+	RetrieveGender bool   `json:"retrieve_gender,omitempty"`
+}
+
+type EmailInfo struct {
+	CompanyDomain string `json:"company_domain"`
+	Firstname     string `json:"firstname"`
+	Lastname      string `json:"lastname"`
+	Gender        string `json:"gender"`
 }
 
 type EmailFindResult struct {
-	ID            string  `json:"id"`
-	Status        string  `json:"status"`
-	Email         string  `json:"email"`
-	Qualification string  `json:"qualification"`
-	FirstName     string  `json:"first_name"`
-	LastName      string  `json:"last_name"`
-	Company       Company `json:"company"`
-	Verified      bool    `json:"verified"`
-	CreditsUsed   float64 `json:"credits_used"`
+	ID            string      `json:"id"`
+	Status        string      `json:"status"`
+	Email         string      `json:"email"`
+	Qualification string      `json:"qualification"`
+	FirstName     string      `json:"first_name"`
+	LastName      string      `json:"last_name"`
+	Company       Company     `json:"company"`
+	Verified      bool        `json:"verified"`
+	CreditsUsed   float64     `json:"credits_used"`
+	Info          *EmailInfo  `json:"info,omitempty"`
+	Custom        interface{} `json:"custom,omitempty"`
 }
 
 type EmailFindBulkParams struct {
@@ -44,12 +55,21 @@ type EmailFindBulkResponse struct {
 }
 
 type EmailFindBulkResult struct {
-	BatchID     string            `json:"batch_id"`
-	Status      string            `json:"status"`
-	Total       int               `json:"total"`
-	Completed   int               `json:"completed"`
-	CreditsUsed float64           `json:"credits_used"`
-	Results     []EmailFindResult `json:"results"`
+	General struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"general"`
+	Stats struct {
+		Finished   int `json:"finished"`
+		Requested  int `json:"requested"`
+		Valid      int `json:"valid"`
+		CreditsCost struct {
+			Initial  float64 `json:"initial"`
+			Refunded float64 `json:"refunded"`
+			Final    float64 `json:"final"`
+		} `json:"credits_cost"`
+	} `json:"stats"`
+	Results []EmailFindResult `json:"results"`
 }
 
 // ── Email Verifier ──
@@ -63,34 +83,14 @@ type WebhookOnlySetting struct {
 	Webhook string `json:"webhook,omitempty"`
 }
 
-type VerifyChecks struct {
-	SyntaxValid   bool `json:"syntax_valid"`
-	DomainValid   bool `json:"domain_valid"`
-	MxFound       bool `json:"mx_found"`
-	SmtpValid     bool `json:"smtp_valid"`
-	MailboxExists bool `json:"mailbox_exists"`
-}
-
-type VerifyMetadata struct {
-	IsDisposable bool   `json:"is_disposable"`
-	IsRole       bool   `json:"is_role"`
-	IsFree       bool   `json:"is_free"`
-	IsCatchAll   bool   `json:"is_catch_all"`
-	Provider     string `json:"provider"`
-}
-
 type VerifySingleResult struct {
-	ID            string         `json:"id"`
-	Email         string         `json:"email"`
-	Qualification string         `json:"qualification"`
-	IsDeliverable bool           `json:"is_deliverable"`
-	Checks        VerifyChecks   `json:"checks"`
-	Metadata      VerifyMetadata `json:"metadata"`
-	CreditsUsed   float64        `json:"credits_used"`
+	Email         string      `json:"email"`
+	Qualification string      `json:"qualification"`
+	Custom        interface{} `json:"custom,omitempty"`
 }
 
 type VerifyBulkParams struct {
-	Verifications []string            `json:"verifications"`
+	Emails   []string            `json:"emails"`
 	Settings *WebhookOnlySetting `json:"settings,omitempty"`
 }
 
@@ -128,10 +128,12 @@ type PhoneFindResponse struct {
 }
 
 type PhoneFindResult struct {
-	ID            string `json:"id"`
-	Qualification string `json:"qualification"`
-	Number        string `json:"number"`
-	Country       string `json:"country"`
+	ID            string      `json:"id"`
+	Qualification string      `json:"qualification"`
+	Number        string      `json:"number"`
+	Country       string      `json:"country"`
+	Params        interface{} `json:"params,omitempty"`
+	Custom        interface{} `json:"custom,omitempty"`
 }
 
 type PhoneFindBulkParams struct {
@@ -210,5 +212,6 @@ type ReverseEmailBulkItemResult struct {
 // ── Account ──
 
 type AccountInfo struct {
-	Credits float64 `json:"credits"`
+	Credits  float64  `json:"credits"`
+	Webhooks []string `json:"webhooks"`
 }

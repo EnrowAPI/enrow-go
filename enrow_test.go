@@ -108,7 +108,7 @@ func TestRateLimitError(t *testing.T) {
 
 func TestInsufficientBalanceError(t *testing.T) {
 	server, client := testServer(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(402)
+		w.WriteHeader(422)
 		json.NewEncoder(w).Encode(map[string]any{
 			"error": "InsufficientBalance", "message": "Not enough credits",
 		})
