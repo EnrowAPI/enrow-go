@@ -91,13 +91,6 @@ result, _ := client.Phone.Find(enrow.PhoneFindParams{
 }, &enrow.PollOptions{WaitForResult: true})
 ```
 
-## Reverse Email
-
-```go
-result, _ := client.ReverseEmail.Find(enrow.ReverseEmailParams{Email: "tcook@apple.com"})
-fmt.Println(result.FirstName, result.LinkedinURL)
-```
-
 ## Account
 
 ```go
@@ -130,7 +123,6 @@ if err != nil {
 | Email Finder | 1 credit/email |
 | Email Verifier | 0.25 credit/email |
 | Phone Finder | 50 credits/phone |
-| Reverse Email | 5 credits/lookup |
 
 ## Links
 
