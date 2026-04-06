@@ -1,11 +1,15 @@
 # Enrow Go SDK
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/EnrowAPI/enrow-go)](https://github.com/EnrowAPI/enrow-go)
+[![Last commit](https://img.shields.io/github/last-commit/EnrowAPI/enrow-go)](https://github.com/EnrowAPI/enrow-go/commits)
+
 Find and verify professional emails, phone numbers, and contact information with the [Enrow API](https://enrow.io).
 
 ## Install
 
 ```bash
-go get github.com/enrow/enrow-go
+go get github.com/EnrowAPI/enrow-go
 ```
 
 ## Quick start
@@ -15,7 +19,7 @@ package main
 
 import (
     "fmt"
-    enrow "github.com/enrow/enrow-go"
+    enrow "github.com/EnrowAPI/enrow-go"
 )
 
 func main() {

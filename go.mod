@@ -1,3 +1,3 @@
-module github.com/enrow/enrow-go
+module github.com/EnrowAPI/enrow-go
 
 go 1.21
