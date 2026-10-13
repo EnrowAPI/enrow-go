@@ -7,6 +7,24 @@ Base URL: https://api.enrow.io
 All endpoints require an API key passed as a header:
 - Header: `x-api-key: YOUR_API_KEY`
 - The API is available to customers with an active subscription or pay-as-you-go credits.
+- One API key per account, shared by the whole team. The account owner (on a team, the team owner) can reset it on https://app.enrow.io/api, which invalidates the previous key.
+
+## Common Error Responses
+
+These errors apply to ALL POST endpoints:
+
+| Code | Messages |
+|------|----------|
+| 401 | `No apikey found in the x-api-key headers` |
+| 401 | `This apikey is not valid` |
+| 402 | `Insufficient credits` |
+| 429 | Rate limit exceeded (10 req/s per API key on POST endpoints) |
+
+Error body shapes:
+- Most errors return `{"message": "..."}`.
+- Insufficient-credit (402) on SINGLE endpoints returns `{"reason": "...", "success": false}`; on BULK endpoints `{"message": "..."}`.
+- Responses never include `error`, `status`, or `retry_after` fields.
+- The API never returns 404. An unknown or expired ID returns 500 (single endpoints) or 400 (bulk endpoints).
 
 ---
 
@@ -16,21 +34,26 @@ All endpoints require an API key passed as a header:
 
 Find a professional email address from a name and company. Asynchronous — returns a search ID, retrieve results via GET or webhook.
 
-**Credit cost:** 1 credit per email found
+It can also search from a person's LinkedIn profile URL instead of a name and company: see "Search from a LinkedIn profile URL" below.
+
+**Credit cost:** 1 credit per email found (a search from a LinkedIn profile URL costs 0.25 credit when no email is found)
 
 ## Parameters
 
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
-| fullname | body | string | yes | The full name of the person |
+| fullname | body | string | yes* | The full name of the person |
 | company_domain | body | string | yes* | Company domain (e.g., "dundermifflin.com"). Multiple formats accepted. |
 | company_name | body | string | yes* | Company name (e.g., "Dunder Mifflin"). |
+| linkedin_url | body | string | no** | The person's LinkedIn profile URL (e.g., "https://www.linkedin.com/in/dwight-schrute"), to search from the profile instead of a name and company. |
 | custom | body | object | no | Custom params returned as-is in GET response and webhook |
-| settings.webhook | body | string | no | HTTPS URL notified when search completes |
+| settings.webhook | body | string | no | URL notified when search completes |
 | settings.country_code | body | string | no | ISO 3166 Alpha-2 (default: "US"). Relevant with company_name only. |
 | settings.retrieve_gender | body | boolean | no | Returns gender (male/female). Default: false. |
+| settings.retrieve_company_info | body | boolean | no | Returns additional company info. Currently only effective when country_code is "FR". Default: false. |
 
-*Either company_domain or company_name is required.
+*A name + company search needs fullname plus either company_domain or company_name. Not needed for a search from linkedin_url.
+**Only used when the request is not a complete name + company search. With a fullname and a company, linkedin_url is ignored.
 
 ## Responses
 
@@ -45,21 +68,48 @@ Find a professional email address from a name and company. Asynchronous — retu
 
 ### 400 Bad Request
 ```json
-{"message": "input payload is missing fullname"}
+{"message": "missing fullname"}
 {"message": "both company_domain and company_name are absent, input payload needs at least one of them"}
-{"message": "Invalid JSON input"}
+{"message": "invalid JSON input"}
+{"message": "invalid linkedin_url format"}
+{"message": "LinkedIn email search is suspended for this account"}
 ```
 
-### 401 Unauthorized
+`invalid linkedin_url format`: linkedin_url is not the URL of a person's LinkedIn profile (company page, short link, other website). `LinkedIn email search is suspended for this account`: searches from a LinkedIn profile URL are suspended for the account; search by name and company, or contact api@enrow.io.
+
+### 402 Insufficient credits
 ```json
-{"message": "No apikey found in the x-api-key headers"}
-{"message": "This apikey is not valid"}
+{"reason": "Insufficient credits", "success": false}
 ```
 
-### 422 Insufficient Balance
+## Search from a LinkedIn profile URL
+
+Send a person's LinkedIn profile URL in `linkedin_url` instead of a full name and a company. Enrow reads the profile, identifies the person's current company, then finds and verifies their professional email there. Same asynchronous flow as any single search: 200 with an `id`, then GET or webhook. `custom` and `settings` work the same way. Single searches only: the bulk endpoint does not take `linkedin_url`.
+
+When the profile is used: `linkedin_url` is given AND the request is not a complete name + company search, meaning `fullname` is missing, blank or a single character, OR neither `company_domain` nor `company_name` is given. A request with a `fullname` and a company stays a name + company search, even with a `linkedin_url`. When the search runs from the profile, any `fullname`, `company_domain` or `company_name` sent along is ignored: the name and the company come from the profile.
+
+Accepted URLs:
+- Public profile URL: `https://www.linkedin.com/in/dwight-schrute`, with or without `https://` or `www.`, on a country subdomain (`fr.linkedin.com`), with a trailing slash or a query string
+- Profile URL with a member ID: `https://www.linkedin.com/in/ACoAAB2xY3ZaBcD`
+- Sales Navigator lead or people URL: `https://www.linkedin.com/sales/lead/ACwAAB2xY3ZaBcD,NAME_SEARCH,a1b2`
+
+Anything else returns 400 `invalid linkedin_url format`: a company page (`linkedin.com/company/...`), a short `lnkd.in` link, a page outside linkedin.com, a profile name without the URL.
+
+Company searched: the person's current company as shown on the profile. When several positions are current, the first one listed. Entries that are not an employer (self-employed, freelance, student...) are skipped. No current position at an employer: the search ends with `no_current_company`.
+
+Cost: 1 credit is used at launch (`credits_used: 1`), the difference is refunded once the search ends. Final cost: 1 credit when an email is found, 0.25 credit when none is found, 0 when the search fails because of an issue on Enrow's side (`linkedin_status: "lookup_failed"`, fully refunded).
+
+Availability: this search may not be available on every account. Without it, a request with only `linkedin_url` gets the usual validation error (e.g., `missing fullname`). Contact api@enrow.io if you need it.
+
+Request:
 ```json
-{"message": "Insufficient balance"}
+{
+  "linkedin_url": "https://www.linkedin.com/in/dwight-schrute",
+  "custom": {"crm_id": "lead_001"}
+}
 ```
+
+Response: the same 200 as a name + company search (`{"message": "Single search operating", "id": "...", "credits_used": 1}`).
 
 ---
 
@@ -81,27 +131,84 @@ Retrieve the result of a previously launched email search.
 ```json
 {
   "email": "dwight.schrute@dundermifflin.com",
-  "custom": {"external_id": "do4eIF8jF40x!"},
+  "custom": {"external_id": "do4eIF8jF40x!", "partition_number": 2},
   "info": {
     "company_domain": "dundermifflin.com",
+    "company_name": "Dunder Mifflin",
     "fullname": "Dwight Schrute",
-    "firstname": "Dwight",
-    "lastname": "Schrute"
+    "firstname": "dwight",
+    "lastname": "schrute",
+    "gender": "male",
+    "companyInfo": {}
   },
-  "qualification": "valid"
+  "qualification": "valid",
+  "credits_used": 1
 }
 ```
 
-qualification: "valid" (email found) or "invalid" (email not found). Binary system — no probabilistic categories.
+| Field | Description |
+|-------|-------------|
+| qualification | "valid" (email found) or "invalid" (email not found). Binary — no probabilistic categories. |
+| credits_used | Final cost once refunds are applied: 1 for an email found, 0 for an email not found (0.25 for a search from a LinkedIn profile URL or for an account whose success rate is abnormally low, see Credits) |
+| info.company_domain | Company domain |
+| info.company_name | Company name, when provided/derived |
+| info.fullname | Full name as provided in the request |
+| info.firstname | First name |
+| info.lastname | Last name |
+| info.gender | "male" or "female" — only present if `retrieve_gender` was set to `true` |
+| info.companyInfo | Additional company data, when available |
+| custom | Custom object passed in original request, returned as-is |
+| linkedin_status | Search from a LinkedIn profile URL only: "found", "profile_not_found", "no_current_company", "email_not_found" or "lookup_failed" |
+| linkedin_url | Search from a LinkedIn profile URL only: the linkedin_url sent in the request |
 
 ### 202 Search ongoing
 ```json
 {"qualification": "ongoing"}
 ```
 
-### 404 Not found
+### Errors
+- 400 `{"message": "The single search id is missing in the URL query string"}` — id missing.
+- 500 `{"message": "Could not retrieve single search results"}` — unknown/expired id. (No 404.)
+
+### Result of a search from a LinkedIn profile URL
+
+Same binary `qualification`, plus `linkedin_status` (how the search ended) and `linkedin_url` (the URL sent).
+
+| linkedin_status | Meaning | qualification | credits_used |
+|-----------------|---------|---------------|--------------|
+| found | The person's professional email was found and verified | valid | 1 |
+| profile_not_found | No profile found at this LinkedIn URL | invalid | 0.25 |
+| no_current_company | The profile shows no current position to search from | invalid | 0.25 |
+| email_not_found | Profile found, but no email at the person's current company | invalid | 0.25 |
+| lookup_failed | The search could not be completed because of an issue on Enrow's side; fully refunded, try again in a few minutes | invalid | 0 |
+
+On "found", `info` holds the name and company read from the profile: `firstname`, `lastname`, `company_name`, `company_domain`, plus `gender` when `retrieve_gender` is true (no `fullname`). On any other status: no `email` and no `info`. If the email or the profile is on the account's suppression list, the email found is withheld: `email_not_found`, credits_used 1. While running: 202 `{"qualification": "ongoing"}`.
+
 ```json
-{"message": "Bulk search not found"}
+{
+  "email": "dwight.schrute@dundermifflin.com",
+  "custom": {"crm_id": "lead_001"},
+  "info": {
+    "company_domain": "dundermifflin.com",
+    "company_name": "Dunder Mifflin",
+    "firstname": "Dwight",
+    "lastname": "Schrute"
+  },
+  "linkedin_status": "found",
+  "linkedin_url": "https://www.linkedin.com/in/dwight-schrute",
+  "qualification": "valid",
+  "credits_used": 1
+}
+```
+
+```json
+{
+  "custom": {"crm_id": "lead_001"},
+  "linkedin_status": "no_current_company",
+  "linkedin_url": "https://www.linkedin.com/in/dwight-schrute",
+  "qualification": "invalid",
+  "credits_used": 0.25
+}
 ```
 
 ---
@@ -122,11 +229,14 @@ Run multiple email searches in parallel. Up to 5,000 per batch.
 | searches[].fullname | body | string | yes | The person's full name |
 | searches[].company_domain | body | string | yes* | Company domain |
 | searches[].company_name | body | string | yes* | Company name |
-| searches[].custom | body | string | no | Custom value returned in results |
-| custom | body | object | no | Batch-level custom params |
+| searches[].custom | body | string \| object | no | Custom value returned per-result |
+| custom | body | object | no | Batch-level custom params, returned in GET response under `general.custom` |
 | settings.country_code | body | string | no | ISO 3166 Alpha-2 (default: "US") |
-| settings.webhook | body | string | no | HTTPS URL notified when batch completes |
+| settings.webhook | body | string | no | URL notified when batch completes |
 | settings.retrieve_gender | body | boolean | no | Returns gender. Default: false. |
+| settings.retrieve_company_info | body | boolean | no | Returns company info (only effective when country_code is "FR"). Default: false. |
+
+*Either company_domain or company_name is required per search.
 
 ### 201 Bulk search started
 ```json
@@ -141,7 +251,14 @@ Run multiple email searches in parallel. Up to 5,000 per batch.
 ### 400 Bad Request
 ```json
 {"message": "Missing payload"}
-{"message": "Missing mandatory property on search n°8 of 50"}
+{"message": "Missing searches payload"}
+{"message": "Too many searches. Limit is currently at 5000 per batch."}
+{"message": "Error while parsing payload"}
+```
+
+### 402 Insufficient credits
+```json
+{"message": "..."}
 ```
 
 ---
@@ -152,10 +269,16 @@ Run multiple email searches in parallel. Up to 5,000 per batch.
 
 Retrieve results of a bulk email search.
 
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The batch ID returned from the POST request |
+
 ### 200 Search completed
 ```json
 {
-  "general": {"id": "...", "status": "completed"},
+  "general": {"id": "...", "status": "completed", "custom": {}},
   "stats": {
     "finished": 3,
     "requested": 3,
@@ -167,7 +290,7 @@ Retrieve results of a bulk email search.
       "index": "0",
       "qualification": "valid",
       "email": "dwight.schrute@dundermifflin.com",
-      "info": {"domain": "dundermifflin.com", "fullname": "Dwight Schrute", "firstname": "Dwight", "lastname": "Schrute"},
+      "info": {"domain": "dundermifflin.com", "firstname": "Dwight", "lastname": "Schrute", "gender": "male", "companyInfo": {}},
       "raw_params": {"company_domain": "dundermifflin.com", "fullname": "Dwight Schrute"},
       "custom": "lead_001"
     }
@@ -175,14 +298,23 @@ Retrieve results of a bulk email search.
 }
 ```
 
-### 202 Search ongoing
+| Field | Description |
+|-------|-------------|
+| general.status | "completed", "ongoing", or "failed" |
+| general.custom | Batch-level custom object passed in original request |
+| stats.credits_cost | Object with initial, refunded, final breakdown |
+| results[].info | Only present for valid results: domain, firstname (capitalized), lastname (capitalized), gender, companyInfo. No `fullname`. |
+| results[].custom | Per-search custom value passed in original request |
+| results[].raw_params | Original search parameters |
+
+### 200 Search ongoing
 ```json
 {"general": {"id": "...", "status": "ongoing"}, "stats": {"requested": 3, "finished": 2}}
 ```
 
-### 404 Not found
+### 400 Not found
 ```json
-{"message": "Bulk search not found"}
+{"message": "Could not retrieve bulk search results"}
 ```
 
 ---
@@ -201,7 +333,7 @@ Verify a single email address. Determinist verification — works on catch-all d
 |------|----|------|----------|-------------|
 | email | body | string | yes | Email address to verify |
 | custom | body | object | no | Custom params returned in results |
-| settings.webhook | body | string | no | HTTPS URL notified when verification completes |
+| settings.webhook | body | string | no | URL notified when verification completes |
 
 ### 200 Verification initiated
 ```json
@@ -213,9 +345,17 @@ Verify a single email address. Determinist verification — works on catch-all d
 }
 ```
 
+`credits.source` is one of `sub`, `paygo`, or `mixed`.
+
 ### 400 Bad Request
 ```json
-{"message": "Invalid JSON input"}
+{"message": "invalid email format"}
+{"message": "invalid JSON input"}
+```
+
+### 402 Insufficient credits
+```json
+{"reason": "Insufficient credits", "success": false}
 ```
 
 ---
@@ -223,6 +363,12 @@ Verify a single email address. Determinist verification — works on catch-all d
 # Email Verifier - Get Single Verification
 
 **GET** `https://api.enrow.io/email/verify/single?id={id}`
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The verification ID returned from the POST request |
 
 ### 200 Verification finished
 ```json
@@ -240,6 +386,10 @@ qualification: "valid" (deliverable) or "invalid" (not deliverable).
 {"qualification": "ongoing"}
 ```
 
+### Errors
+- 400 `{"message": "The single verif id is missing in the URL query string"}` — id missing.
+- 500 `{"message": "Could not retrieve single verification results"}` — unknown/expired id. (No 404.)
+
 ---
 
 # Email Verifier - Verify Bulk
@@ -254,18 +404,33 @@ Verify multiple emails in batch. Up to 5,000 per batch.
 
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
-| emails | body | array of strings | yes | Email addresses to verify |
-| custom | body | object | no | Custom params returned in results |
-| settings.webhook | body | string | no | HTTPS URL notified when batch completes |
+| verifications | body | array of strings | yes | Email addresses to verify |
+| custom | body | object | no | Custom params returned in GET response under `general.custom` |
+| settings.webhook | body | string | no | URL notified when batch completes |
 
 ### 201 Bulk verification started
 ```json
 {
   "message": "Bulk verification operating",
   "id": "0cf517bc-16e8-45bc-b967-ab9116b3c804",
-  "credits_used": 3,
-  "estimated_duration": 1
+  "credits_used": 0.5,
+  "estimated_duration": 1,
+  "credits": {"amount": 0.5, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 0.5}}
 }
+```
+
+`credits.source` is one of `sub`, `paygo`, or `mixed`.
+
+### 400 Bad Request
+```json
+{"message": "Missing payload"}
+{"message": "At least 1 verification must be present in the payload"}
+{"message": "Too many verifications. Limit is currently at 5000 per batch."}
+```
+
+### 402 Insufficient credits
+```json
+{"message": "..."}
 ```
 
 ---
@@ -274,16 +439,35 @@ Verify multiple emails in batch. Up to 5,000 per batch.
 
 **GET** `https://api.enrow.io/email/verify/bulk?id={id}`
 
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The batch ID returned from the POST request |
+
 ### 200 Verification completed
 ```json
 {
-  "general": {"id": "...", "status": "completed"},
+  "general": {"id": "9d4fa0ed-f76b-409f-bee4-d5468ebda70e", "status": "completed", "custom": {}},
   "results": [
-    {"email": "pam.beesly@dundermifflin.com", "index": "...", "qualification": "valid"},
-    {"email": "angela.martin@dundermifflin.com", "index": "...", "qualification": "valid"}
+    {"email": "pam.beesly@dundermifflin.com", "index": "195f87c6-376e-4eca-9861-f92935413b0c", "qualification": "valid"},
+    {"email": "angela.martin@dundermifflin.com", "index": "662784ae-3722-47af-b056-7554e013f73b", "qualification": "valid"}
   ],
   "stats": {"credits_cost": 0.5, "requested": 2, "valid": 2}
 }
+```
+
+- `general.status`: "completed", "ongoing", or "failed". `general.custom` is the batch-level custom.
+- Each result contains only `email`, `index`, `qualification` (no per-result `custom`).
+
+### 200 Verification ongoing
+```json
+{"general": {"id": "...", "status": "ongoing"}, "stats": {"finished": 1, "requested": 2}}
+```
+
+### 400 Not found
+```json
+{"message": "Could not retrieve bulk verification results"}
 ```
 
 ---
@@ -292,9 +476,11 @@ Verify multiple emails in batch. Up to 5,000 per batch.
 
 **POST** `https://api.enrow.io/phone/single`
 
-Find a phone number. Asynchronous. LinkedIn URL recommended.
+Find a phone number from a LinkedIn profile URL (recommended) or from a name and company. Asynchronous. The LinkedIn URL takes precedence if both are provided.
 
-**Credit cost:** 50 credits per phone found
+**Credit cost:** 40 credits per phone found (default; 50 with legacy plans)
+
+Requires phone-finder access: accounts without it receive 401 `This account is not allowed to use the phone search feature`.
 
 ## Parameters
 
@@ -308,8 +494,8 @@ Option 2:
 
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
-| first_name | body | string | yes* | First name |
-| last_name | body | string | yes* | Last name |
+| firstname | body | string | yes* | First name |
+| lastname | body | string | yes* | Last name |
 | company_domain | body | string | yes* | Company domain |
 | company_name | body | string | yes* | Company name (alternative) |
 
@@ -318,21 +504,33 @@ Additional:
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
 | custom | body | string | no | Custom value returned in results |
-| settings.webhook | body | string | no | HTTPS URL notified when search completes |
+| settings.webhook | body | string | no | URL notified when search completes |
 
 ### 201 Single search created
 ```json
 {
-  "credits_used": 50,
+  "credits_used": 40,
   "id": "94cbc13b-7d77-4f41-83f0-60106daa7182",
   "message": "Single search operating",
-  "credits": {"amount": 50, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 50}}
+  "credits": {"amount": 40, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 40}}
 }
 ```
 
+`credits.source` is one of `sub`, `paygo`, or `mixed`.
+
 ### 400 Bad Request
 ```json
-{"message": "Invalid linkedin_url"}
+{"message": "Invalid linkedin_url format"}
+```
+
+### 401 Feature not enabled
+```json
+{"message": "This account is not allowed to use the phone search feature"}
+```
+
+### 402 Insufficient credits
+```json
+{"reason": "Insufficient credits", "success": false}
 ```
 
 ---
@@ -340,6 +538,12 @@ Additional:
 # Phone Finder - Get Single Result
 
 **GET** `https://api.enrow.io/phone/single?id={search_id}`
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The search ID returned from the POST request |
 
 ### 200 Number found
 ```json
@@ -352,18 +556,25 @@ Additional:
 }
 ```
 
-qualification: "found", "not_found", or "ongoing"
+| Field | Description |
+|-------|-------------|
+| qualification | "found", "not_found", or "ongoing" |
+| number | Phone number, always `+`-prefixed (only when "found") |
+| country | ISO 3166-1 Alpha-2 (only when "found") |
+| params | Original search parameters |
+| custom | Custom value passed in original request |
 
 ### 200 Number not found
-Same structure but qualification: "not_found", no number/country fields.
+Structure has `qualification: "not_found"` with `params` (no number/country). Suppressed contacts return only `{"qualification": "not_found"}`.
 
 ### 202 Search ongoing
-Same structure but qualification: "ongoing"
-
-### 400 Missing ID
 ```json
-{"message": "Missing id in the query params"}
+{"qualification": "ongoing"}
 ```
+
+### Errors
+- 400 `{"message": "Missing id in the query params"}` — id missing.
+- 500 `{"message": "Could not retrieve single search results"}` — unknown/expired id. (No 404.)
 
 ---
 
@@ -371,24 +582,54 @@ Same structure but qualification: "ongoing"
 
 **POST** `https://api.enrow.io/phone/bulk`
 
-Search for multiple phone numbers. Up to 5,000 per batch.
+Search for multiple phone numbers. Up to 3,000 per batch.
 
-**Credit cost:** 50 credits per phone found (per item)
+**Credit cost:** 40 credits per phone found (default; 50 with legacy plans)
+
+Requires phone-finder access (401 if not enabled).
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| searches | body | array | yes | Array of search objects |
+| searches[].linkedin_url | body | string | yes* | LinkedIn profile URL (recommended) |
+| searches[].firstname | body | string | yes* | First name (option 2) |
+| searches[].lastname | body | string | yes* | Last name (option 2) |
+| searches[].company_domain | body | string | yes* | Company domain (option 2) |
+| searches[].company_name | body | string | yes* | Company name (option 2, alternative) |
+| searches[].custom | body | string | no | Custom value returned in results |
+| custom | body | object | no | Batch-level custom params, returned in GET response under `general.custom` |
+| settings.webhook | body | string | no | URL notified when batch completes |
 
 ### 201 Bulk search created
 ```json
 {
-  "credits_used": 3400,
-  "estimated_duration": 5,
+  "credits_used": 80,
+  "estimated_duration": 1,
   "id": "e3b61122-d6a6-4ea7-b331-9b734682a76a",
-  "message": "Bulk search operating"
+  "message": "Bulk search operating",
+  "credits": {"amount": 80, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 80}}
 }
 ```
+
+`credits.source` is one of `sub`, `paygo`, or `mixed`.
 
 ### 400 Bad Request
 ```json
 {"message": "At least 1 phone search must be present in the payload"}
 {"message": "Missing payload"}
+{"message": "Too many searches. Limit is currently at 3000 per batch."}
+```
+
+### 401 Feature not enabled
+```json
+{"message": "This account is not allowed to use the phone search feature"}
+```
+
+### 402 Insufficient credits
+```json
+{"message": "..."}
 ```
 
 ---
@@ -397,22 +638,36 @@ Search for multiple phone numbers. Up to 5,000 per batch.
 
 **GET** `https://api.enrow.io/phone/bulk?id={batch_id}`
 
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The batch ID returned from the POST request |
+
 ### 200 Search finished
 ```json
 {
-  "general": {"id": "...", "status": "completed"},
+  "general": {"id": "e3b61122-d6a6-4ea7-b331-9b734682a76a", "status": "completed", "custom": {}},
   "results": [
     {"country": "US", "index": 0, "number": "+15705551234", "params": {"linkedin_url": "https://www.linkedin.com/in/michael-scott"}, "qualification": "found"},
     {"country": "US", "index": 1, "number": "+15705555678", "params": {"linkedin_url": "https://www.linkedin.com/in/dwight-schrute"}, "qualification": "found"}
   ],
-  "stats": {"credits_cost": 100, "requested": 2, "valid": 2}
+  "stats": {"credits_cost": 80, "credits_to_refund": 0, "found": 2, "requested": 2}
 }
 ```
+
+- `general.status`: "completed", "ongoing", or "failed".
+- Completed `stats`: `credits_cost`, `credits_to_refund`, `found` (number of phones found — NOT `valid`), `requested`.
+- Suppressed contacts appear as `{"index": n, "params": {...}, "qualification": "not_found"}` (no number/country).
 
 ### 200 Search ongoing
 ```json
 {"general": {"id": "...", "status": "ongoing"}, "stats": {"finished": 0, "requested": 1}}
 ```
+
+### Errors
+- 400 `{"message": "Missing id in the query params"}` — id missing.
+- 400 `{"message": "Could not retrieve bulk search results"}` — unknown id.
 
 ---
 
@@ -420,7 +675,13 @@ Search for multiple phone numbers. Up to 5,000 per batch.
 
 **GET** `https://api.enrow.io/account/info`
 
-Retrieve credit balance and registered webhooks.
+Retrieve credit balance and registered webhooks. No body payload needed.
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| (none) | — | — | — | Account info is retrieved from the API key in the header |
 
 ### 200 Success
 ```json
@@ -429,6 +690,8 @@ Retrieve credit balance and registered webhooks.
   "webhooks": ["https://api.mysuperwebsite/api/webhook"]
 }
 ```
+
+`credits` is a single number (total balance). `webhooks` is an array of URLs and may be absent if none are configured.
 
 ### 401 Unauthorized
 ```json
@@ -439,11 +702,54 @@ Retrieve credit balance and registered webhooks.
 
 # Webhooks
 
-Six event types: single_search_finished, bulk_search_finished, verification_finished, bulk_verification_finished, single_phone_search_finished, bulk_phone_search_finished.
+Six event types:
 
-For single searches, the full result is included in the webhook payload. For bulk, only the batch ID and credits cost — use the GET endpoint to retrieve results.
+| Event | Trigger | Payload |
+|-------|---------|---------|
+| single_search_finished | Single email search done | Full result included |
+| bulk_search_finished | Bulk email search done | ID + credits only — use GET to fetch results |
+| verification_finished | Single verification done | Full result included |
+| bulk_verification_finished | Bulk verification done | ID + credits only — use GET to fetch results |
+| single_phone_search_finished | Single phone search done | Full result included |
+| bulk_phone_search_finished | Bulk phone search done | ID only — use GET to fetch results |
 
-Setup: pass webhook URL in settings.webhook per request, or configure globally at https://app.enrow.io/integrations
+Setup: pass a webhook URL in `settings.webhook` per request, or set a default webhook on the API page (https://app.enrow.io/api). When a request carries its own `settings.webhook`: Email Finder notifies both that URL and the default one (once if identical); Phone Finder and Email Verifier notify only the per-request URL.
+
+Endpoint verification: saving a new default webhook URL on the API page triggers a one-time check. Enrow POSTs `{"event": "endpoint_verification", "challenge": "<value>"}` (JSON) and expects, within 5 seconds, a 2xx response that echoes the challenge, as the raw body or as `{"challenge": "<value>"}`. Per-request webhooks are not checked.
+
+Delivery: each notification is sent once, with no retry. If your endpoint is down or answers non-2xx, fetch the result with the matching GET endpoint. HTTP and HTTPS URLs are accepted (HTTPS recommended). Phone Finder payloads carry no `credits` object.
+
+single_search_finished for a search from a LinkedIn profile URL: `result` also carries `linkedin_status` and `linkedin_url` (the URL sent). `info` (with `fullname`) is only included when an email is found. `credits.cost` is the final cost, like `credits_used` in the GET response.
+
+```json
+{
+  "event": "single_search_finished",
+  "id": "910f3e13-b2bf-442d-ab0b-4cf44dfrij84fjrt",
+  "credits": {"cost": 1},
+  "result": {
+    "email": "dwight.schrute@dundermifflin.com",
+    "qualification": "valid",
+    "linkedin_status": "found",
+    "linkedin_url": "https://www.linkedin.com/in/dwight-schrute",
+    "custom": {"crm_id": "lead_001"},
+    "info": {"company_domain": "dundermifflin.com", "company_name": "Dunder Mifflin", "fullname": "Dwight Schrute", "firstname": "Dwight", "lastname": "Schrute"}
+  }
+}
+```
+
+```json
+{
+  "event": "single_search_finished",
+  "id": "910f3e13-b2bf-442d-ab0b-4cf44dfrij84fjrt",
+  "credits": {"cost": 0.25},
+  "result": {
+    "qualification": "invalid",
+    "linkedin_status": "no_current_company",
+    "linkedin_url": "https://www.linkedin.com/in/dwight-schrute",
+    "custom": {"crm_id": "lead_001"}
+  }
+}
+```
 
 ---
 
@@ -453,11 +759,13 @@ Setup: pass webhook URL in settings.webhook per request, or configure globally a
 |----------|------|
 | Email Finder | 1 credit per email found |
 | Email Verifier | 0.25 credits per check |
-| Phone Finder | 50 credits per phone found |
+| Phone Finder | 40 credits per phone found (default; 50 with legacy plans) |
 
-POST responses for Email Verifier and Phone Finder include a `credits` object with: `amount`, `source` (sub or paygo), `split` ({fromPaygo, fromSub}).
+Email Finder searches without a result cost nothing, with two exceptions. First (clause 8.6 of the terms of service): an account whose Email Finder success rate stays below 12% over at least 10,000 searches in 7 days is warned by email; if the rate is still that low 7 days later, each search without a result costs 0.25 credit until the rate comes back up. Second: an Email Finder search from a LinkedIn profile URL costs 0.25 credit when no email is found. Failures caused by an incident on Enrow's side are never charged. Webhook `credits.cost` is the final cost once refunds are applied.
 
-Email Finder GET responses include `fullname` in the `info` object alongside `firstname` and `lastname`.
+POST responses for Email Verifier and Phone Finder include a `credits` object: `{amount, source (sub|paygo|mixed), split: {fromPaygo, fromSub}}`.
+
+Email Finder SINGLE GET responses include `fullname` in the `info` object (except a search from a LinkedIn profile URL, whose `info` has `firstname`, `lastname`, `company_name`, `company_domain`); BULK GET results do not include `fullname` in `info` (they expose `domain`, `firstname`, `lastname`, `gender`, `companyInfo`).
 
 ---
 
@@ -465,30 +773,17 @@ Email Finder GET responses include `fullname` in the `info` object alongside `fi
 
 Binary results — no probabilistic categories. Either the result is good or it's not.
 
-- Email Finder: "valid" (found) or "invalid" (not found)
+- Email Finder: "valid" (found) or "invalid" (not found). A search from a LinkedIn profile URL adds `linkedin_status` (found, profile_not_found, no_current_company, email_not_found, lookup_failed)
 - Email Verifier: "valid" (deliverable) or "invalid" (not deliverable)
 - Phone Finder: "found" or "not_found"
 - All endpoints: "ongoing" while processing
+- Bulk batch `status`: "ongoing", "completed", or "failed"
 
 Enrow verifies catch-all emails deterministically. No debouncer needed.
 
 ---
 
-# Error Codes
-
-All errors: `{"message": "..."}`
-
-| Code | Messages |
-|------|----------|
-| 400 | Invalid JSON input, Missing payload, Missing mandatory property, Invalid linkedin_url, Missing id in the query params |
-| 401 | No apikey found in the x-api-key headers, This apikey is not valid |
-| 404 | Bulk search not found |
-| 422 | Insufficient balance |
-| 429 | Rate limit exceeded |
-
----
-
 # Rate Limits
 
-10 requests/second on all POST endpoints. GET endpoints are not rate limited.
+10 requests/second per API key on all POST endpoints. GET endpoints are not rate limited. No `X-RateLimit-*` headers are returned.
 Increase available on request: api@enrow.io

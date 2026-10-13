@@ -3,21 +3,28 @@ package enrow
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
 const defaultBaseURL = "https://api.enrow.io"
 
+const (
+	defaultPollInterval = 2 * time.Second
+	defaultPollTimeout  = 30 * time.Second
+
+	// ongoing is the qualification of a search or verification still running.
+	ongoing = "ongoing"
+)
+
 type Client struct {
-	Email        *EmailFinder
-	Verify       *EmailVerifier
-	Phone        *PhoneFinder
-	ReverseEmail *ReverseEmailResource
-	Account      *AccountResource
+	Email   *EmailFinder
+	Verify  *EmailVerifier
+	Phone   *PhoneFinder
+	Account *AccountResource
 
 	apiKey  string
 	baseURL string
@@ -47,7 +54,6 @@ func New(apiKey string, opts ...Option) *Client {
 	c.Email = &EmailFinder{client: c}
 	c.Verify = &EmailVerifier{client: c}
 	c.Phone = &PhoneFinder{client: c}
-	c.ReverseEmail = &ReverseEmailResource{client: c}
 	c.Account = &AccountResource{client: c}
 
 	return c
@@ -111,61 +117,74 @@ func parseError(status int, body []byte) error {
 	var apiErr struct {
 		Error   string `json:"error"`
 		Message string `json:"message"`
+		// A 402 on a single endpoint answers {"reason": "...", "success": false}.
+		Reason string `json:"reason"`
 	}
 	if err := json.Unmarshal(body, &apiErr); err != nil {
-		apiErr.Message = string(body)
+		apiErr.Message = strings.TrimSpace(string(body))
+	}
+	if apiErr.Message == "" {
+		apiErr.Message = apiErr.Reason
 	}
 
+	base := EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}
 	switch status {
-	case 401:
-		return &AuthenticationError{EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}
-	case 422:
-		return &InsufficientBalanceError{EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}
-	case 429:
-		return &RateLimitError{EnrowError: EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}}
+	case http.StatusUnauthorized:
+		return &AuthenticationError{base}
+	case http.StatusPaymentRequired:
+		return &InsufficientBalanceError{base}
+	case http.StatusTooManyRequests:
+		return &RateLimitError{EnrowError: base}
 	default:
-		return &EnrowError{Status: status, Err: apiErr.Error, Message: apiErr.Message}
+		return &base
 	}
 }
 
-func poll[T any](fetcher func() (*T, error), isDone func(*T) bool, interval, timeout time.Duration) (*T, error) {
-	if interval == 0 {
-		interval = 2 * time.Second
-	}
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	start := time.Now()
-	for {
-		result, err := fetcher()
-		if err != nil {
-			return nil, err
-		}
-		if isDone(result) {
-			return result, nil
-		}
-		if time.Since(start) >= timeout {
-			return result, nil
-		}
-		time.Sleep(interval)
-	}
-}
-
-// PollOptions controls auto-polling behavior.
+// PollOptions makes a single search or verification wait for its result: once
+// it is launched, Get is called every PollInterval (default 2s) until it has
+// ended or Timeout (default 30s) has elapsed. On timeout the result is returned
+// as it is, with Qualification "ongoing" and its ID, so that Get can be called
+// later. If a Get fails, the error is returned along with the launched result,
+// whose ID stays usable.
 type PollOptions struct {
 	WaitForResult bool
 	PollInterval  time.Duration
 	Timeout       time.Duration
 }
 
-func defaultPoll(opts *PollOptions) *PollOptions {
-	if opts == nil {
-		return &PollOptions{}
+func pollOptions(opts []*PollOptions) PollOptions {
+	if len(opts) > 0 && opts[0] != nil {
+		return *opts[0]
 	}
-	return opts
+	return PollOptions{}
 }
 
-func formatPath(pattern string, args ...any) string {
-	return fmt.Sprintf(pattern, args...)
+// poll waits interval, calls fetch, and repeats until done reports true or
+// timeout has elapsed. It returns the last result either way.
+func poll[T any](fetch func() (*T, error), done func(*T) bool, interval, timeout time.Duration) (*T, error) {
+	if interval <= 0 {
+		interval = defaultPollInterval
+	}
+	if timeout <= 0 {
+		timeout = defaultPollTimeout
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		wait := interval
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+
+		result, err := fetch()
+		if err != nil {
+			return nil, err
+		}
+		if done(result) || !time.Now().Before(deadline) {
+			return result, nil
+		}
+	}
 }
